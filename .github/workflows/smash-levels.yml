@@ -73,9 +73,11 @@ jobs:
 
       - name: Extract levels
         if: steps.filter.outputs.skip != 'true'
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@v1.0.132
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic_federation_rule_id: fdrl_014hmengT3TT4GDY1ETtZdyP
+          anthropic_organization_id: d221e62d-adf5-4a60-bee5-287b372129b9
+          anthropic_service_account_id: svac_01TvkxjHtM33LCcFTBJ1gyiC
           prompt: |
             Read .claude/skills/extract-levels/SKILL.md and follow it exactly.
 
