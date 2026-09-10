@@ -1,0 +1,108 @@
+name: Smash Levels
+
+on:
+  # Fired by Make.com when a new item appears in the Substack feed.
+  repository_dispatch:
+    types: [smash-post]
+
+  # Manual replay of any post. Use this for all testing.
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Post URL (e.g. https://newsletter.smashelito.com/p/es-daily-plan-september-10-2026)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Extract and validate but do NOT write to the sheet'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Resolve inputs
+        id: resolve
+        run: |
+          URL="${{ github.event.inputs.url }}"
+          TITLE="${{ github.event.client_payload.title }}"
+          if [ -z "$URL" ]; then
+            URL="${{ github.event.client_payload.url }}"
+          fi
+          if [ -z "$URL" ]; then
+            echo "::error::No post URL supplied by either trigger."
+            exit 1
+          fi
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Processing: $URL"
+          echo "Title: ${TITLE:-(none supplied)}"
+
+      # Cheap pre-filter. Weeklies and non-plan posts exit here without
+      # burning an API call. Title is authoritative -- never scan the body,
+      # because every daily embeds the weekly plan's title in a promo card.
+      - name: Filter on title
+        id: filter
+        run: |
+          TITLE="${{ github.event.client_payload.title }}"
+          URL="${{ steps.resolve.outputs.url }}"
+          if [ -n "$TITLE" ]; then
+            case "$TITLE" in
+              "ES Daily Plan"*) echo "Daily plan confirmed." ;;
+              *) echo "Not a daily plan ($TITLE). Exiting clean."
+                 echo "skip=true" >> "$GITHUB_OUTPUT" ;;
+            esac
+          else
+            case "$URL" in
+              *es-daily-plan*) echo "Daily plan confirmed from slug." ;;
+              *) echo "Not a daily plan (slug). Exiting clean."
+                 echo "skip=true" >> "$GITHUB_OUTPUT" ;;
+            esac
+          fi
+
+      - name: Extract levels
+        if: steps.filter.outputs.skip != 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Read .claude/skills/extract-levels/SKILL.md and follow it exactly.
+
+            POST_URL: ${{ steps.resolve.outputs.url }}
+
+            Write your JSON result to levels.json in the repository root.
+            Write nothing else. Do not create or modify any other file.
+          claude_args: |
+            --model claude-sonnet-5
+            --max-turns 12
+            --allowedTools "WebFetch,Read,Write"
+
+      - name: Validate and write to sheet
+        if: steps.filter.outputs.skip != 'true'
+        env:
+          SHEET_WEBHOOK_URL: ${{ secrets.SHEET_WEBHOOK_URL }}
+          SHEET_WEBHOOK_SECRET: ${{ secrets.SHEET_WEBHOOK_SECRET }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: python3 scripts/validate_and_post.py levels.json
+
+      # Kept even on failure -- when something goes wrong, the model's raw
+      # output is the only thing that tells you why.
+      - name: Upload extraction artifact
+        if: always() && steps.filter.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: levels-${{ github.run_id }}
+          path: levels.json
+          if-no-files-found: warn
+          retention-days: 90

@@ -1,0 +1,36 @@
+name: Heartbeat
+
+# A webhook that never fires notifies nobody. This runs once a night and
+# fails -- which emails you -- if no levels have landed in the sheet
+# recently. It is the only thing standing between a broken Make scenario
+# and you trading yesterday's levels without knowing it.
+#
+# Note: scheduled workflows only run from the default branch.
+
+on:
+  schedule:
+    - cron: '37 12 * * 2-6'   # 12:37 UTC Tue-Sat = after each weekday plan
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check sheet freshness
+        env:
+          SHEET_WEBHOOK_URL: ${{ secrets.SHEET_WEBHOOK_URL }}
+          SHEET_WEBHOOK_SECRET: ${{ secrets.SHEET_WEBHOOK_SECRET }}
+        run: |
+          RESP=$(curl -sS -L "${SHEET_WEBHOOK_URL}?secret=${SHEET_WEBHOOK_SECRET}")
+          echo "$RESP"
+          AGE=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('age_hours', 999))")
+          echo "Last write was ${AGE}h ago."
+          python3 -c "
+          import sys
+          age = float('${AGE}')
+          if age > 26:
+              print(f'::error::No levels written in {age:.1f}h. Check the Make scenario and the Actions log.')
+              sys.exit(1)
+          print('Fresh.')
+          "
