@@ -14,7 +14,7 @@ confidently wrong level gets traded.
 
 ## Input
 
-`POST_URL` is supplied in your prompt. Fetch it with WebFetch.
+The post text is in post.txt in the repository root. Read it with the Read tool. It is plain text converted from HTML, so expect navigation and footer cruft around the article body.
 
 ## Output
 
