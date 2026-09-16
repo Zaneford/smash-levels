@@ -33,6 +33,14 @@ STYLE = {
 }
 EXTRA_STYLE = (4, 1)  # dash-dot-dot, thin -- visually distinct from the chain
 
+# VIX levels go to their own spreadsheet and their own chart. Different
+# scale entirely (~10-40), so they get their own colours rather than
+# reusing the ES line-type scheme, which would be meaningless there.
+VIX_ALIGN = 2                      # right-aligned, matching the VIX chart
+VIX_HIGH  = ("Resistance", "red", 0, 2)
+VIX_LOW   = ("Support", "green", 0, 2)
+VIX_MIN, VIX_MAX = 5.0, 100.0      # anything outside this is a misparse
+
 UP_LABELS = {"UT1", "UT2", "UT3", "FUT"}
 DOWN_LABELS = {"DT1", "DT2", "DT3", "FDT"}
 
@@ -178,12 +186,36 @@ for ex in (d.get("extras") or []):
     else:
         warn(f"Dropped out-of-band extra: {ex}")
 
-print(f"\n{len(rows)} rows for {plan_date}:")
+print(f"\n{len(rows)} ES rows for {plan_date}:")
 for r in rows:
     print("  " + ",".join(str(c) for c in r))
 
-if (d.get("vix") or []):
-    print(f"\nVIX levels (not written to sheet): {d['vix']}")
+
+# --- Build VIX rows ---------------------------------------------------
+# Secondary payload. A bad VIX pair warns and is dropped; it never fails
+# the run, because the ES levels are the thing that matters.
+
+vix_rows = []
+vix = d.get("vix") or []
+
+if vix:
+    nums = [v for v in vix if isinstance(v, (int, float))]
+    if len(nums) != 2:
+        warn(f"Expected 2 VIX levels, got {vix!r}. Skipping VIX.")
+    elif not all(VIX_MIN <= v <= VIX_MAX for v in nums):
+        warn(f"VIX values outside {VIX_MIN}-{VIX_MAX}: {nums}. Skipping VIX.")
+    elif nums[0] == nums[1]:
+        warn(f"VIX levels identical: {nums}. Skipping VIX.")
+    else:
+        hi, lo = max(nums), min(nums)
+        for price, (note, color, lt, lw) in ((hi, VIX_HIGH), (lo, VIX_LOW)):
+            vix_rows.append([price, "", note, color, lt, lw, VIX_ALIGN])
+
+        print(f"\n{len(vix_rows)} VIX rows:")
+        for r in vix_rows:
+            print("  " + ",".join(str(c) for c in r))
+else:
+    print("\nNo VIX levels in this post.")
 
 
 # --- Post -------------------------------------------------------------
@@ -201,6 +233,7 @@ payload = json.dumps({
     "secret": secret,
     "plan_date": plan_date.isoformat(),
     "rows": rows,
+    "vix_rows": vix_rows,
 }).encode()
 
 req = urllib.request.Request(
@@ -231,4 +264,8 @@ if result.get("status") == "duplicate":
 if result.get("status") != "ok":
     die(f"Sheet write failed: {result}")
 
-print(f"Wrote {result.get('rows')} rows for {plan_date}.")
+if result.get("vix_error"):
+    warn(f"ES levels written, but VIX write failed: {result['vix_error']}")
+
+print(f"Wrote {result.get('rows')} ES rows and "
+      f"{result.get('vix_rows', 0)} VIX rows for {plan_date}.")
