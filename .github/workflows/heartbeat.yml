@@ -1,15 +1,15 @@
 name: Heartbeat
 
-# A webhook that never fires notifies nobody. This runs once a night and
-# fails -- which emails you -- if no levels have landed in the sheet
-# recently. It is the only thing standing between a broken Make scenario
-# and you trading yesterday's levels without knowing it.
+# A webhook that never fires notifies nobody. This runs once a morning and
+# fails -- which emails you -- if no levels have landed recently. It is the
+# only thing standing between a broken Make scenario and you trading
+# yesterday's levels without knowing it.
 #
 # Note: scheduled workflows only run from the default branch.
 
 on:
   schedule:
-    - cron: '37 12 * * 2-6'   # 12:37 UTC Tue-Sat = after each weekday plan
+    - cron: '15 14 * * 2-6'   # 14:15 UTC = 09:15 Lima, after the 08:00 catch-up
   workflow_dispatch:
 
 jobs:
@@ -22,15 +22,22 @@ jobs:
           SHEET_WEBHOOK_URL: ${{ secrets.SHEET_WEBHOOK_URL }}
           SHEET_WEBHOOK_SECRET: ${{ secrets.SHEET_WEBHOOK_SECRET }}
         run: |
-          RESP=$(curl -sS -L "${SHEET_WEBHOOK_URL}?secret=${SHEET_WEBHOOK_SECRET}")
-          echo "$RESP"
-          AGE=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('age_hours', 999))")
-          echo "Last write was ${AGE}h ago."
+          if ! curl -sS -L -g -G \
+              --max-time 60 \
+              --data-urlencode "secret=$SHEET_WEBHOOK_SECRET" \
+              "$SHEET_WEBHOOK_URL" -o resp.json; then
+            echo "::error::Could not reach the sheet endpoint. Check the Apps Script deployment."
+            exit 1
+          fi
+          cat resp.json
+          echo
+          AGE=$(python3 -c "import json;print(json.load(open('resp.json')).get('age_hours',999))" 2>/dev/null || echo 999)
+          echo "Last write: ${AGE}h ago"
           python3 -c "
           import sys
-          age = float('${AGE}')
+          age = float('$AGE')
           if age > 26:
-              print(f'::error::No levels written in {age:.1f}h. Check the Make scenario and the Actions log.')
+              print(f'::error::No levels written in {age:.1f}h. Check Make is switched on and the Actions log.')
               sys.exit(1)
           print('Fresh.')
           "
