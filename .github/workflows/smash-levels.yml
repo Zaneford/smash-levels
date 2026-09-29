@@ -1,22 +1,36 @@
 name: Smash Levels
 
 on:
-  # Fired by Make.com when a new item appears in the Substack feed.
+  # Self-contained polling. Covers his 21:55-22:01 UTC publish window,
+  # the +1h shift when the US goes off DST in November, and a morning
+  # catch-up for the nights he posts late.
+  schedule:
+    - cron: '10,40 22 * * 1-5'   # 17:10 / 17:40 Lima
+    - cron: '10,40 23 * * 1-5'   # 18:10 / 18:40 Lima  (and post-DST primary)
+    - cron: '0 13 * * 2-6'       # 08:00 Lima -- catch-up
+
+  # Optional push from Make. Harmless to keep wired up; nothing depends on it.
   repository_dispatch:
     types: [smash-post]
 
-  # Manual replay of any post. Use this for all testing.
+  # Manual replay of any post.
   workflow_dispatch:
     inputs:
       url:
-        description: 'Post URL (e.g. https://newsletter.smashelito.com/p/es-daily-plan-september-10-2026)'
-        required: true
+        description: 'Post URL (blank = check the feed)'
+        required: false
         type: string
       dry_run:
         description: 'Extract and validate but do NOT write to the sheet'
         required: false
         type: boolean
         default: false
+
+# Two crons can overlap near a publish. Let the first finish rather than
+# running the same post twice.
+concurrency:
+  group: smash-levels
+  cancel-in-progress: false
 
 jobs:
   extract:
@@ -33,69 +47,44 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Resolve inputs
+      # A URL supplied by hand or by Make wins. Otherwise poll the feed.
+      - name: Resolve target
         id: resolve
+        env:
+          SHEET_WEBHOOK_URL: ${{ secrets.SHEET_WEBHOOK_URL }}
+          SHEET_WEBHOOK_SECRET: ${{ secrets.SHEET_WEBHOOK_SECRET }}
+          MANUAL_URL: ${{ github.event.inputs.url }}
+          DISPATCH_URL: ${{ github.event.client_payload.url }}
+          DISPATCH_TITLE: ${{ github.event.client_payload.title }}
         run: |
-          URL="${{ github.event.inputs.url }}"
-          TITLE="${{ github.event.client_payload.title }}"
-          if [ -z "$URL" ]; then
-            URL="${{ github.event.client_payload.url }}"
-          fi
-          if [ -z "$URL" ]; then
-            echo "::error::No post URL supplied by either trigger."
-            exit 1
-          fi
-          echo "url=$URL" >> "$GITHUB_OUTPUT"
-          echo "Processing: $URL"
-          echo "Title: ${TITLE:-(none supplied)}"
-
-      # Cheap pre-filter. Weeklies and non-plan posts exit here without
-      # burning an API call. Title is authoritative -- never scan the body,
-      # because every daily embeds the weekly plan's title in a promo card.
-      - name: Filter on title
-        id: filter
-        run: |
-          TITLE="${{ github.event.client_payload.title }}"
-          URL="${{ steps.resolve.outputs.url }}"
-          if [ -n "$TITLE" ]; then
-            case "$TITLE" in
-              "ES Daily Plan"*) echo "Daily plan confirmed." ;;
-              *) echo "Not a daily plan ($TITLE). Exiting clean."
-                 echo "skip=true" >> "$GITHUB_OUTPUT" ;;
-            esac
+          URL="${MANUAL_URL:-$DISPATCH_URL}"
+          if [ -n "$URL" ]; then
+            echo "Explicit URL supplied: $URL"
+            {
+              echo "skip=false"
+              echo "url=$URL"
+              echo "title=$DISPATCH_TITLE"
+            } >> "$GITHUB_OUTPUT"
           else
-            case "$URL" in
-              *es-daily-plan*) echo "Daily plan confirmed from slug." ;;
-              *) echo "Not a daily plan (slug). Exiting clean."
-                 echo "skip=true" >> "$GITHUB_OUTPUT" ;;
-            esac
+            python3 scripts/check_feed.py
           fi
 
+      # Everything below is gated. A scheduled run that finds nothing new
+      # costs one HTTP request and stops here.
       - name: Fetch post
-        if: steps.filter.outputs.skip != 'true'
+        if: steps.resolve.outputs.skip != 'true'
         run: |
           curl -sS -L --max-time 60 \
             -A "Mozilla/5.0 (compatible; smash-levels/1.0)" \
             "${{ steps.resolve.outputs.url }}" -o post.html
-          python3 - <<'EOF'
-          import html, re
-          raw = open('post.html', encoding='utf-8', errors='replace').read()
-          raw = re.sub(r'(?is)<(script|style|noscript).*?</\1>', ' ', raw)
-          raw = re.sub(r'(?is)<br\s*/?>|</p>|</div>|</h[1-6]>', '\n', raw)
-          txt = html.unescape(re.sub(r'(?s)<[^>]+>', ' ', raw))
-          txt = re.sub(r'[ \t]+', ' ', txt)
-          txt = re.sub(r'\n\s*\n+', '\n\n', txt).strip()
-          open('post.txt', 'w', encoding='utf-8').write(txt)
-          print(f"{len(txt)} chars written")
-          EOF
-          head -c 500 post.txt
+          python3 scripts/extract_text.py
 
       - name: Extract levels
-        if: steps.filter.outputs.skip != 'true'
+        if: steps.resolve.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1.0.132
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          show_full_output: true          
+          show_full_output: true
           prompt: |
             Read .claude/skills/extract-levels/SKILL.md and follow it exactly.
 
@@ -113,17 +102,15 @@ jobs:
             --allowedTools "Read,Write"
 
       - name: Validate and write to sheet
-        if: steps.filter.outputs.skip != 'true'
+        if: steps.resolve.outputs.skip != 'true'
         env:
           SHEET_WEBHOOK_URL: ${{ secrets.SHEET_WEBHOOK_URL }}
           SHEET_WEBHOOK_SECRET: ${{ secrets.SHEET_WEBHOOK_SECRET }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: python3 scripts/validate_and_post.py levels.json
 
-      # Kept even on failure -- when something goes wrong, the model's raw
-      # output is the only thing that tells you why.
       - name: Upload extraction artifact
-        if: always() && steps.filter.outputs.skip != 'true'
+        if: always() && steps.resolve.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: levels-${{ github.run_id }}
