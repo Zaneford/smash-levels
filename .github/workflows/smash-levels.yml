@@ -5,9 +5,9 @@ on:
   # the +1h shift when the US goes off DST in November, and a morning
   # catch-up for the nights he posts late.
   schedule:
-    - cron: '10,40 22 * * 1-5'   # 17:10 / 17:40 Lima
-    - cron: '10,40 23 * * 1-5'   # 18:10 / 18:40 Lima  (and post-DST primary)
-    - cron: '0 13 * * 2-6'       # 08:00 Lima -- catch-up
+    - cron: '10,40 22 * * 0-4'   # Sun-Thu evening -> Mon-Fri plans
+    - cron: '10,40 23 * * 0-4'   # same, post-DST
+    - cron: '0 13 * * 1-5'       # Mon-Fri morning catch-up
 
   # Optional push from Make. Harmless to keep wired up; nothing depends on it.
   repository_dispatch:
