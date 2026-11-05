@@ -1,23 +1,23 @@
 name: Smash Levels
 
 on:
-  # Self-contained polling. Covers his 21:55-22:01 UTC publish window,
-  # the +1h shift when the US goes off DST in November, and a morning
-  # catch-up for the nights he posts late.
+  # Self-contained polling. Evening crons are Sun-Thu because the plan for
+  # day N is published the EVENING OF DAY N-1. Morning catch-up is Mon-Fri.
   schedule:
-    - cron: '10,40 22 * * 0-4'   # Sun-Thu evening -> Mon-Fri plans
-    - cron: '10,40 23 * * 0-4'   # same, post-DST
-    - cron: '0 13 * * 1-5'       # Mon-Fri morning catch-up
+    - cron: '10,40 22 * * 0-4'   # 17:10 / 17:40 Lima
+    - cron: '10,40 23 * * 0-4'   # 18:10 / 18:40 Lima (primary after US DST ends)
+    - cron: '0 13 * * 1-5'       # 08:00 Lima -- catch-up
 
-  # Optional push from Make. Harmless to keep wired up; nothing depends on it.
+  # Optional push from Make. Nothing depends on it.
   repository_dispatch:
     types: [smash-post]
 
-  # Manual replay of any post.
+  # Manual replay. Supply the EXACT email subject line, e.g.
+  #   ES Daily Plan | October 21, 2026
   workflow_dispatch:
     inputs:
-      url:
-        description: 'Post URL (blank = check the feed)'
+      title:
+        description: 'Post title / email subject (blank = check the feed)'
         required: false
         type: string
       dry_run:
@@ -26,8 +26,6 @@ on:
         type: boolean
         default: false
 
-# Two crons can overlap near a publish. Let the first finish rather than
-# running the same post twice.
 concurrency:
   group: smash-levels
   cancel-in-progress: false
@@ -47,23 +45,23 @@ jobs:
         with:
           python-version: '3.12'
 
-      # A URL supplied by hand or by Make wins. Otherwise poll the feed.
+      # A title supplied by hand or by Make wins. Otherwise poll the feed.
+      # The feed still carries titles and links even though the bodies are
+      # now gated, so it remains a perfectly good trigger.
       - name: Resolve target
         id: resolve
         env:
           SHEET_WEBHOOK_URL: ${{ secrets.SHEET_WEBHOOK_URL }}
           SHEET_WEBHOOK_SECRET: ${{ secrets.SHEET_WEBHOOK_SECRET }}
-          MANUAL_URL: ${{ github.event.inputs.url }}
-          DISPATCH_URL: ${{ github.event.client_payload.url }}
+          MANUAL_TITLE: ${{ github.event.inputs.title }}
           DISPATCH_TITLE: ${{ github.event.client_payload.title }}
         run: |
-          URL="${MANUAL_URL:-$DISPATCH_URL}"
-          if [ -n "$URL" ]; then
-            echo "Explicit URL supplied: $URL"
+          TITLE="${MANUAL_TITLE:-$DISPATCH_TITLE}"
+          if [ -n "$TITLE" ]; then
+            echo "Explicit title supplied: $TITLE"
             {
               echo "skip=false"
-              echo "url=$URL"
-              echo "title=$DISPATCH_TITLE"
+              echo "title=$TITLE"
             } >> "$GITHUB_OUTPUT"
           else
             python3 scripts/check_feed.py
@@ -73,11 +71,11 @@ jobs:
       # costs one HTTP request and stops here.
       - name: Fetch post
         if: steps.resolve.outputs.skip != 'true'
-        run: |
-          curl -sS -L --max-time 60 \
-            -A "Mozilla/5.0 (compatible; smash-levels/1.0)" \
-            "${{ steps.resolve.outputs.url }}" -o post.html
-          python3 scripts/extract_text.py
+        env:
+          SHEET_WEBHOOK_URL: ${{ secrets.SHEET_WEBHOOK_URL }}
+          SHEET_WEBHOOK_SECRET: ${{ secrets.SHEET_WEBHOOK_SECRET }}
+          POST_TITLE: ${{ steps.resolve.outputs.title }}
+        run: python3 scripts/fetch_post.py
 
       - name: Extract levels
         if: steps.resolve.outputs.skip != 'true'
