@@ -33,6 +33,11 @@ STYLE = {
 }
 EXTRA_STYLE = (4, 1)  # dash-dot-dot, thin -- visually distinct from the chain
 
+# Buffer band drawn around each level: a rectangle from price+ZONE_PAD to
+# price-ZONE_PAD. Set to 0 to disable bands entirely and draw lines only.
+ZONE_PAD   = 2.0
+ZONE_STYLE = (0, 1)   # solid, thin -- a quiet border so the level line leads
+
 # VIX levels go to their own spreadsheet and their own chart. Different
 # scale entirely (~10-40), so they get their own colours rather than
 # reusing the ES line-type scheme, which would be meaningless there.
@@ -186,7 +191,23 @@ for ex in (d.get("extras") or []):
     else:
         warn(f"Dropped out-of-band extra: {ex}")
 
-print(f"\n{len(rows)} ES rows for {plan_date}:")
+# --- Buffer bands -----------------------------------------------------
+# One rectangle per level. Emitted BEFORE the lines so the study draws the
+# lines last and they sit on top of the bands rather than under them.
+# Bands carry no note, so each level keeps exactly one chart label.
+
+zone_rows = []
+if ZONE_PAD > 0:
+    for item in [{"price": smash}] + up + down:
+        p = item["price"]
+        lt, lw = ZONE_STYLE
+        zone_rows.append([round(p + ZONE_PAD, 2), round(p - ZONE_PAD, 2),
+                          "", COLOR, lt, lw, ALIGN])
+
+rows = zone_rows + rows
+
+print(f"\n{len(rows)} ES rows for {plan_date} "
+      f"({len(zone_rows)} bands + {len(rows) - len(zone_rows)} lines):")
 for r in rows:
     print("  " + ",".join(str(c) for c in r))
 
