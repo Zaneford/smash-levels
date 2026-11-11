@@ -36,7 +36,7 @@ EXTRA_STYLE = (4, 1)  # dash-dot-dot, thin -- visually distinct from the chain
 # Buffer band drawn around each level: a rectangle from price+ZONE_PAD to
 # price-ZONE_PAD. Set to 0 to disable bands entirely and draw lines only.
 ZONE_PAD   = 2.0
-ZONE_STYLE = (0, 1)   # solid, thin -- a quiet border so the level line leads
+ZONE_STYLE = (0, 0)   # width 0 = no border, fill only (see note below)
 
 # VIX levels go to their own spreadsheet and their own chart. Different
 # scale entirely (~10-40), so they get their own colours rather than
