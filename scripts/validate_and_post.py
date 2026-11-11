@@ -18,7 +18,8 @@ from datetime import date, datetime
 
 BAND = 0.10          # reject any price >10% from the smashlevel
 MAX_ZONE_WIDTH = 40  # a "zone" wider than this is a misparse, not a zone
-COLOR = "yellow"
+COLOR       = "yellow"   # targets
+SMASH_COLOR = "red"      # the pivot, matching how Smashelito marks it
 ALIGN = 1            # 1 = left, matching the current sheet
 
 # label -> (line type, width).  0 line / 1 dash / 2 dot / 3 dash-dot
@@ -174,13 +175,14 @@ for seq, name in ((up, "upside"), (down, "downside")):
 rows = []
 
 
-def row(price, low, note, style):
+def row(price, low, note, style, color=COLOR):
     lt, lw = style
     rows.append([price, low if low is not None else "", note,
-                 COLOR, lt, lw, ALIGN])
+                 color, lt, lw, ALIGN])
 
 
-row(smash, None, f"SMASH {plan_date.month}/{plan_date.day}", STYLE["SMASH"])
+row(smash, None, f"SMASH {plan_date.month}/{plan_date.day}", STYLE["SMASH"],
+    SMASH_COLOR)
 for it in up + down:
     row(it["price"], it.get("price_low"), it["label"], STYLE[it["label"]])
 
@@ -198,11 +200,11 @@ for ex in (d.get("extras") or []):
 
 zone_rows = []
 if ZONE_PAD > 0:
-    for item in [{"price": smash}] + up + down:
+    for item in [{"price": smash, "color": SMASH_COLOR}] + up + down:
         p = item["price"]
         lt, lw = ZONE_STYLE
         zone_rows.append([round(p + ZONE_PAD, 2), round(p - ZONE_PAD, 2),
-                          "", COLOR, lt, lw, ALIGN])
+                          "", item.get("color", COLOR), lt, lw, ALIGN])
 
 rows = zone_rows + rows
 
