@@ -84,7 +84,14 @@ if d.get("plan_type") != "daily":
 if d.get("confidence") != "high":
     die(f"Confidence {d.get('confidence')!r}. Notes: {d.get('notes') or '(none)'}")
 
-if d.get("cross_check") != "pass":
+cross = d.get("cross_check")
+if cross == "single_source":
+    # The post carried only the terminal bullet block, with no anchor
+    # paragraph to compare against. The bullets are authoritative, so this
+    # is allowed -- but flagged, because the redundancy is gone.
+    warn("No anchor paragraph in this post; levels come from the bullet "
+         "block alone. Worth eyeballing against the post.")
+elif cross != "pass":
     die(f"Cross-check failed. Notes: {d.get('notes') or '(none)'}")
 
 
