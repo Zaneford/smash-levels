@@ -4,10 +4,15 @@ on:
   # Self-contained polling. Evening crons are Sun-Thu because the plan for
   # day N is published the EVENING OF DAY N-1. Morning catch-up is Mon-Fri.
   schedule:
-    - cron: '10,40 22 * * 0-4'   # 17:10 / 17:40 Lima
-    - cron: '10,40 23 * * 0-4'   # 18:10 / 18:40 Lima (primary after US DST ends)
-    - cron: '0 13 * * 1-5'       # 08:00 Lima -- catch-up
-
+    # Sunday, anchored to the 17:00 CT futures open
+    - cron: '56 22 * * 0'        # 16:56 CT -- 4 min before open
+    - cron: '0,5 23 * * 0'       # 17:00 and 17:05 CT
+    # Sun-Thu evenings, after his usual publish time
+    - cron: '15,45 23 * * 0-4'
+    - cron: '15 0 * * 1-5'
+    # Weekday morning catch-up
+    - cron: '0 13 * * 1-5'
+  
   # Optional push from Make. Nothing depends on it.
   repository_dispatch:
     types: [smash-post]
