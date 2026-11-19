@@ -113,6 +113,11 @@ target chain, usually after a violent session. Emit what exists, set
 Compare paragraph values against bullet values.
 
 - Match within **2 points** → `cross_check: "pass"`.
+- **No anchor paragraph in the post at all** → `cross_check: "single_source"`.
+  This is not a failure. Some posts carry only the terminal bullet block,
+  which is the authoritative source anyway. If the bullet block is present
+  and complete, `confidence` stays `"high"`; say in `notes` that no anchor
+  paragraph was present.
 - A paragraph value with no bullet counterpart, or a gap over 2 points →
   `cross_check: "fail"`, `confidence: "low"`, both values in `notes`.
 
@@ -144,8 +149,7 @@ reviews them.
 `high` only when **all** of:
 
 - The anchor paragraph and bullet block were both found
-- `cross_check` is `pass`
-- Every price survives the 10% filter
+- `cross_check` is `pass` or `single_source`- Every price survives the 10% filter
 - At least one level exists per side
 - `plan_date` is unambiguous
 
